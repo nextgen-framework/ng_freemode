@@ -238,6 +238,346 @@ class FreemodeGamemode {
       aliases: ['kill', 'respawn']
     });
 
+    // Command: List online players
+    chatCommands.register('players', (source) => {
+      const players = [];
+      for (let i = 0; i < GetNumPlayerIndices(); i++) {
+        const playerId = GetPlayerFromIndex(i);
+        const name = GetPlayerName(playerId);
+        players.push(`^5[${playerId}]^7 ${name}`);
+      }
+
+      chatCommands.sendMessage(source, `^3=== Online Players (${players.length}) ===`);
+      players.forEach(player => chatCommands.sendMessage(source, player));
+    }, {
+      plugin: 'ng_freemode',
+      description: 'List online players',
+      aliases: ['online', 'list']
+    });
+
+    // Command: Announce (admin)
+    chatCommands.register('announce', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/announce <message>');
+        return;
+      }
+
+      const message = args.join(' ');
+      chatCommands.broadcast(`^3[ANNOUNCEMENT] ^7${message}`);
+      console.log(`[Freemode] Player ${source} announced: ${message}`);
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Broadcast message to all players',
+      permission: 'command.announce',
+      aliases: ['broadcast', 'ann'],
+      params: [
+        { name: 'message', help: 'Message to broadcast' }
+      ]
+    });
+
+    // Command: Goto player (admin)
+    chatCommands.register('goto', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/goto <player_id>');
+        return;
+      }
+
+      const targetId = parseInt(args[0]);
+      if (isNaN(targetId) || !GetPlayerPed(targetId)) {
+        chatCommands.sendMessage(source, '^1Error: ^7Invalid player ID');
+        return;
+      }
+
+      const targetPed = GetPlayerPed(targetId);
+      const [x, y, z] = GetEntityCoords(targetPed);
+
+      const ped = GetPlayerPed(source);
+      SetEntityCoords(ped, x, y, z, false, false, false, false);
+
+      chatCommands.sendMessage(source, `^2Teleported to ^7${GetPlayerName(targetId)}`);
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Teleport to a player',
+      permission: 'command.goto',
+      aliases: ['tp'],
+      params: [
+        { name: 'player_id', help: 'Target player ID' }
+      ]
+    });
+
+    // Command: Bring player (admin)
+    chatCommands.register('bring', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/bring <player_id>');
+        return;
+      }
+
+      const targetId = parseInt(args[0]);
+      if (isNaN(targetId) || !GetPlayerPed(targetId)) {
+        chatCommands.sendMessage(source, '^1Error: ^7Invalid player ID');
+        return;
+      }
+
+      const ped = GetPlayerPed(source);
+      const [x, y, z] = GetEntityCoords(ped);
+
+      const targetPed = GetPlayerPed(targetId);
+      SetEntityCoords(targetPed, x, y, z, false, false, false, false);
+
+      chatCommands.sendMessage(source, `^2Brought ^7${GetPlayerName(targetId)}^2 to you`);
+      chatCommands.sendMessage(targetId, `^2You were brought to ^7${GetPlayerName(source)}`);
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Bring a player to you',
+      permission: 'command.bring',
+      params: [
+        { name: 'player_id', help: 'Target player ID' }
+      ]
+    });
+
+    // Command: Heal player
+    chatCommands.register('heal', (source, args) => {
+      let targetId = source;
+
+      if (args.length > 0) {
+        targetId = parseInt(args[0]);
+        if (isNaN(targetId) || !GetPlayerPed(targetId)) {
+          chatCommands.sendMessage(source, '^1Error: ^7Invalid player ID');
+          return;
+        }
+      }
+
+      const targetPed = GetPlayerPed(targetId);
+      SetEntityHealth(targetPed, 200);
+
+      if (targetId === source) {
+        chatCommands.sendMessage(source, '^2You healed yourself');
+      } else {
+        chatCommands.sendMessage(source, `^2Healed ^7${GetPlayerName(targetId)}`);
+        chatCommands.sendMessage(targetId, `^2You were healed by ^7${GetPlayerName(source)}`);
+      }
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Heal yourself or a player',
+      params: [
+        { name: 'player_id', help: 'Target player ID (optional)' }
+      ]
+    });
+
+    // Command: Give weapon (admin)
+    chatCommands.register('weapon', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/weapon <weapon_name>');
+        chatCommands.sendMessage(source, '^5Examples: ^7pistol, smg, rifle, shotgun');
+        return;
+      }
+
+      const weaponName = args[0].toLowerCase();
+      const weapons = {
+        'pistol': 'WEAPON_PISTOL',
+        'smg': 'WEAPON_SMG',
+        'rifle': 'WEAPON_ASSAULTRIFLE',
+        'shotgun': 'WEAPON_PUMPSHOTGUN',
+        'sniper': 'WEAPON_SNIPERRIFLE',
+        'rpg': 'WEAPON_RPG'
+      };
+
+      const weaponHash = weapons[weaponName] || weaponName.toUpperCase();
+      const ped = GetPlayerPed(source);
+
+      GiveWeaponToPed(ped, GetHashKey(weaponHash), 250, false, true);
+      chatCommands.sendMessage(source, `^2Weapon given: ^7${weaponName}`);
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Give yourself a weapon',
+      permission: 'command.weapon',
+      aliases: ['gun'],
+      params: [
+        { name: 'weapon_name', help: 'Weapon name' }
+      ]
+    });
+
+    // ===== Whitelist Commands =====
+
+    // Command: Whitelist add (admin)
+    chatCommands.register('wladd', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/wladd <identifier>');
+        chatCommands.sendMessage(source, '^5Example: ^7/wladd license:716a655091a9c8579d4709deb5cfec4da3902774');
+        return;
+      }
+
+      const identifier = args[0];
+      const whitelist = this.framework.getModule('whitelist');
+
+      if (!whitelist) {
+        chatCommands.sendMessage(source, '^1Error: ^7Whitelist module not loaded');
+        return;
+      }
+
+      const adminName = GetPlayerName(source);
+      whitelist.add(identifier, adminName, 'Added via command')
+        .then(result => {
+          if (result.success) {
+            chatCommands.sendMessage(source, `^2✓ Added to whitelist: ^7${identifier}`);
+            console.log(`[Freemode] ${adminName} added ${identifier} to whitelist`);
+          } else if (result.reason === 'already_whitelisted') {
+            chatCommands.sendMessage(source, `^3⚠ Already whitelisted: ^7${identifier}`);
+          } else {
+            chatCommands.sendMessage(source, `^1Error: ^7${result.reason}`);
+          }
+        })
+        .catch(error => {
+          chatCommands.sendMessage(source, `^1Error: ^7${error.message}`);
+        });
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Add player to whitelist',
+      permission: 'command.whitelist',
+      params: [
+        { name: 'identifier', help: 'Player identifier (e.g., license:xxx)' }
+      ]
+    });
+
+    // Command: Whitelist remove (admin)
+    chatCommands.register('wlremove', (source, args) => {
+      if (args.length === 0) {
+        chatCommands.sendMessage(source, '^1Usage: ^7/wlremove <identifier>');
+        return;
+      }
+
+      const identifier = args[0];
+      const whitelist = this.framework.getModule('whitelist');
+
+      if (!whitelist) {
+        chatCommands.sendMessage(source, '^1Error: ^7Whitelist module not loaded');
+        return;
+      }
+
+      const adminName = GetPlayerName(source);
+      whitelist.remove(identifier, adminName, 'Removed via command')
+        .then(result => {
+          if (result.success) {
+            chatCommands.sendMessage(source, `^2✓ Removed from whitelist: ^7${identifier}`);
+            console.log(`[Freemode] ${adminName} removed ${identifier} from whitelist`);
+          } else if (result.reason === 'not_found') {
+            chatCommands.sendMessage(source, `^3⚠ Not found in whitelist: ^7${identifier}`);
+          } else {
+            chatCommands.sendMessage(source, `^1Error: ^7${result.reason}`);
+          }
+        })
+        .catch(error => {
+          chatCommands.sendMessage(source, `^1Error: ^7${error.message}`);
+        });
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Remove player from whitelist',
+      permission: 'command.whitelist',
+      aliases: ['wldel'],
+      params: [
+        { name: 'identifier', help: 'Player identifier' }
+      ]
+    });
+
+    // Command: Whitelist list (admin)
+    chatCommands.register('wllist', (source) => {
+      const whitelist = this.framework.getModule('whitelist');
+
+      if (!whitelist) {
+        chatCommands.sendMessage(source, '^1Error: ^7Whitelist module not loaded');
+        return;
+      }
+
+      whitelist.getAll()
+        .then(list => {
+          chatCommands.sendMessage(source, `^3=== Whitelist (${list.length} entries) ===`);
+          if (list.length === 0) {
+            chatCommands.sendMessage(source, '^7No whitelisted players');
+          } else {
+            list.slice(0, 20).forEach((entry, i) => {
+              const date = new Date(entry.added_at).toLocaleDateString();
+              chatCommands.sendMessage(source, `^5${i + 1}. ^7${entry.identifier} ^5(by ${entry.added_by}, ${date})`);
+            });
+            if (list.length > 20) {
+              chatCommands.sendMessage(source, `^7... and ${list.length - 20} more`);
+            }
+          }
+        })
+        .catch(error => {
+          chatCommands.sendMessage(source, `^1Error: ^7${error.message}`);
+        });
+    }, {
+      plugin: 'ng_freemode',
+      description: 'List whitelisted players',
+      permission: 'command.whitelist'
+    });
+
+    // Command: Whitelist toggle (admin)
+    chatCommands.register('wltoggle', (source) => {
+      const whitelist = this.framework.getModule('whitelist');
+
+      if (!whitelist) {
+        chatCommands.sendMessage(source, '^1Error: ^7Whitelist module not loaded');
+        return;
+      }
+
+      if (whitelist.isEnabled()) {
+        whitelist.disable();
+        chatCommands.sendMessage(source, '^3⚠ Whitelist disabled');
+        chatCommands.broadcast('^3Server whitelist has been disabled');
+      } else {
+        whitelist.enable();
+        chatCommands.sendMessage(source, '^2✓ Whitelist enabled');
+        chatCommands.broadcast('^2Server whitelist has been enabled');
+      }
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Toggle whitelist on/off',
+      permission: 'command.whitelist'
+    });
+
+    // Command: Whitelist myself
+    chatCommands.register('wlme', (source) => {
+      const whitelist = this.framework.getModule('whitelist');
+
+      if (!whitelist) {
+        chatCommands.sendMessage(source, '^1Error: ^7Whitelist module not loaded');
+        return;
+      }
+
+      // Get player's license identifier
+      const identifiers = whitelist.getPlayerIdentifiers(source);
+      const license = identifiers.license;
+
+      if (!license) {
+        chatCommands.sendMessage(source, '^1Error: ^7Could not find your license identifier');
+        return;
+      }
+
+      const identifier = `license:${license}`;
+      const playerName = GetPlayerName(source);
+
+      whitelist.add(identifier, playerName, 'Self-added via /wlme')
+        .then(result => {
+          if (result.success) {
+            chatCommands.sendMessage(source, `^2✓ You have been added to whitelist`);
+            chatCommands.sendMessage(source, `^5Your license: ^7${license}`);
+            console.log(`[Freemode] ${playerName} self-added to whitelist: ${identifier}`);
+          } else if (result.reason === 'already_whitelisted') {
+            chatCommands.sendMessage(source, `^3⚠ You are already whitelisted`);
+          } else {
+            chatCommands.sendMessage(source, `^1Error: ^7${result.reason}`);
+          }
+        })
+        .catch(error => {
+          chatCommands.sendMessage(source, `^1Error: ^7${error.message}`);
+        });
+    }, {
+      plugin: 'ng_freemode',
+      description: 'Add yourself to the whitelist',
+      permission: 'command.whitelist'
+    });
+
     console.log('[Freemode] ✅ Commands registered');
   }
 
