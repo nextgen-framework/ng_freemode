@@ -594,7 +594,7 @@ module.exports = FreemodeGamemode;
 
 // Auto-initialize if running as standalone resource
 // Wait for ng_core to fully initialize (including all modules)
-on('ng_core:ready', () => {
+on('nextgen:framework:ready', () => {
   const framework = exports['ng_core'].GetFramework();
 
   if (!framework) {
