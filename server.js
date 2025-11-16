@@ -593,39 +593,25 @@ class FreemodeGamemode {
 module.exports = FreemodeGamemode;
 
 // Auto-initialize if running as standalone resource
-if (GetResourceState('ng_core') === 'started') {
-  // Wait for ng_core framework to be ready
-  setImmediate(async () => {
-    let framework = null;
-    let attempts = 0;
+// Wait for ng_core to fully initialize (including all modules)
+on('ng_core:ready', () => {
+  const framework = exports['ng_core'].GetFramework();
 
-    while (!framework && attempts < 100) {
-      try {
-        framework = exports['ng_core'].GetFramework();
-      } catch (e) {
-        // Framework not ready yet
-      }
+  if (!framework) {
+    console.error('[Freemode] Failed to get framework!');
+    return;
+  }
 
-      if (!framework) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        attempts++;
-      }
-    }
-
-    if (!framework) {
-      console.error('[Freemode] Failed to get framework after 10 seconds!');
-      return;
-    }
-
-    // Initialize the gamemode
-    const gamemode = new FreemodeGamemode(framework);
-    await gamemode.init();
-
-    // Cleanup on resource stop
-    on('onResourceStop', (resourceName) => {
-      if (resourceName === GetCurrentResourceName()) {
-        gamemode.destroy();
-      }
-    });
+  // Initialize the gamemode
+  const gamemode = new FreemodeGamemode(framework);
+  gamemode.init().catch((error) => {
+    console.error('[Freemode] Initialization failed:', error);
   });
-}
+
+  // Cleanup on resource stop
+  on('onResourceStop', (resourceName) => {
+    if (resourceName === GetCurrentResourceName()) {
+      gamemode.destroy();
+    }
+  });
+});
