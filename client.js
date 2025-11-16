@@ -5,6 +5,7 @@
 
 let framework = null;
 let hasSpawned = false;
+let spawnLocations = {};
 
 // Wait for framework
 setImmediate(async () => {
@@ -30,8 +31,11 @@ setImmediate(async () => {
  * Initialize freemode client
  */
 function initializeFreemode() {
-  // Disable default spawn
+  // Disable auto spawn
   exports.spawnmanager.setAutoSpawn(false);
+
+  // Setup spawn points
+  setupSpawnPoints();
 
   // Setup spawn
   setupSpawn();
@@ -46,73 +50,65 @@ function initializeFreemode() {
 }
 
 /**
+ * Setup spawn points
+ */
+function setupSpawnPoints() {
+  // Define spawn locations
+  spawnLocations = {
+    lsia: { x: -1037.0, y: -2737.0, z: 20.0, heading: 240.0, model: 'mp_m_freemode_01' },
+    legion: { x: 215.0, y: -810.0, z: 30.0, heading: 340.0, model: 'mp_m_freemode_01' },
+    vinewood: { x: 752.0, y: 1275.0, z: 360.0, heading: 0.0, model: 'mp_m_freemode_01' },
+    pier: { x: -1686.0, y: -1072.0, z: 13.0, heading: 50.0, model: 'mp_m_freemode_01' },
+    paleto: { x: -104.0, y: 6467.0, z: 31.0, heading: 45.0, model: 'mp_m_freemode_01' },
+    sandy: { x: 1961.0, y: 3741.0, z: 32.0, heading: 300.0, model: 'mp_m_freemode_01' }
+  };
+
+  // Add all spawn points to spawnmanager
+  Object.values(spawnLocations).forEach(spawn => {
+    exports.spawnmanager.addSpawnPoint({
+      x: spawn.x,
+      y: spawn.y,
+      z: spawn.z,
+      heading: spawn.heading,
+      model: spawn.model,
+      skipFade: false
+    });
+  });
+
+  console.log('[Freemode] ✅ Spawn points registered');
+}
+
+/**
  * Setup spawn system
  */
 function setupSpawn() {
   // Spawn player on first join
-  on('playerSpawned', () => {
-    if (!hasSpawned) {
-      hasSpawned = true;
-      spawnPlayer();
-    }
-  });
-
-  // Respawn on death
   on('onClientGameTypeStart', () => {
-    if (!hasSpawned) {
-      spawnPlayer();
-    }
+    exports.spawnmanager.spawnPlayer({
+      x: spawnLocations.lsia.x,
+      y: spawnLocations.lsia.y,
+      z: spawnLocations.lsia.z,
+      heading: spawnLocations.lsia.heading,
+      model: spawnLocations.lsia.model,
+      skipFade: false
+    }, function() {
+      // After spawn callback
+      hasSpawned = true;
+      onPlayerSpawned();
+    });
   });
 }
 
 /**
- * Spawn the player
+ * Called when player spawns
  */
-async function spawnPlayer() {
-  const playerPed = PlayerPedId();
-
-  // Default spawn location (LSIA)
-  const spawnCoords = {
-    x: -1037.0,
-    y: -2737.0,
-    z: 20.0,
-    heading: 240.0
-  };
-
-  // Freeze player
-  FreezeEntityPosition(playerPed, true);
-
-  // Fade out
-  DoScreenFadeOut(500);
-  await delay(500);
-
-  // Set coordinates
-  RequestCollisionAtCoord(spawnCoords.x, spawnCoords.y, spawnCoords.z);
-  SetEntityCoords(playerPed, spawnCoords.x, spawnCoords.y, spawnCoords.z, false, false, false, false);
-  SetEntityHeading(playerPed, spawnCoords.heading);
-
-  // Wait for collision
+async function onPlayerSpawned() {
+  // Wait a bit for everything to load
   await delay(1000);
-
-  // Setup player
-  NetworkResurrectLocalPlayer(spawnCoords.x, spawnCoords.y, spawnCoords.z, spawnCoords.heading, true, false);
-  ClearPedTasksImmediately(playerPed);
-  RemoveAllPedWeapons(playerPed, true);
-
-  // Set default appearance (Michael)
-  SetPlayerModel(PlayerId(), GetHashKey('mp_m_freemode_01'));
-  SetPedDefaultComponentVariation(PlayerPedId());
-
-  // Give basic health
-  SetEntityHealth(playerPed, 200);
-
-  // Unfreeze and fade in
-  FreezeEntityPosition(playerPed, false);
-  DoScreenFadeIn(1000);
 
   // Show welcome message
   const notif = framework.getModule('notifications');
-  if (notif) {
+  if (notif && !hasSpawned) {
     notif.success('Welcome to NextGen Freemode');
     await delay(2000);
     notif.info('Use /help to see available commands');
@@ -190,6 +186,26 @@ function setupRPC() {
     SetEntityHealth(playerPed, 0);
   });
 
+  // Change spawn location
+  framework.rpc.register('freemode:setSpawn', (spawnKey) => {
+    const spawn = spawnLocations[spawnKey];
+    if (!spawn) {
+      return { success: false, error: 'Invalid spawn location' };
+    }
+
+    // Respawn player at new location
+    exports.spawnmanager.spawnPlayer({
+      x: spawn.x,
+      y: spawn.y,
+      z: spawn.z,
+      heading: spawn.heading,
+      model: spawn.model,
+      skipFade: false
+    });
+
+    return { success: true };
+  });
+
   console.log('[Freemode] ✅ RPC handlers registered');
 }
 
@@ -197,18 +213,40 @@ function setupRPC() {
  * Setup death handling
  */
 function setupDeathHandling() {
-  setTick(() => {
-    const playerPed = PlayerPedId();
+  let isDead = false;
+  let respawnTimer = null;
 
-    if (IsEntityDead(playerPed)) {
-      // Player died, wait a bit then respawn
-      setTimeout(() => {
-        if (IsEntityDead(playerPed)) {
-          spawnPlayer();
-        }
-      }, 5000); // 5 second respawn delay
+  setInterval(() => {
+    const playerPed = PlayerPedId();
+    const dead = IsEntityDead(playerPed);
+
+    if (dead && !isDead) {
+      // Player just died
+      isDead = true;
+      console.log('[Freemode] Player died, respawning in 5 seconds...');
+
+      // Set respawn timer
+      respawnTimer = setTimeout(() => {
+        // Respawn player
+        exports.spawnmanager.spawnPlayer({
+          x: spawnLocations.lsia.x,
+          y: spawnLocations.lsia.y,
+          z: spawnLocations.lsia.z,
+          heading: spawnLocations.lsia.heading,
+          model: spawnLocations.lsia.model,
+          skipFade: false
+        });
+        isDead = false;
+      }, 5000);
+    } else if (!dead && isDead) {
+      // Player respawned
+      isDead = false;
+      if (respawnTimer) {
+        clearTimeout(respawnTimer);
+        respawnTimer = null;
+      }
     }
-  });
+  }, 100);
 }
 
 /**
