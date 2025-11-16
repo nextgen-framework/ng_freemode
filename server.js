@@ -591,3 +591,41 @@ class FreemodeGamemode {
 }
 
 module.exports = FreemodeGamemode;
+
+// Auto-initialize if running as standalone resource
+if (GetResourceState('ng_core') === 'started') {
+  // Wait for ng_core framework to be ready
+  setImmediate(async () => {
+    let framework = null;
+    let attempts = 0;
+
+    while (!framework && attempts < 100) {
+      try {
+        framework = exports['ng_core'].GetFramework();
+      } catch (e) {
+        // Framework not ready yet
+      }
+
+      if (!framework) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+    }
+
+    if (!framework) {
+      console.error('[Freemode] Failed to get framework after 10 seconds!');
+      return;
+    }
+
+    // Initialize the gamemode
+    const gamemode = new FreemodeGamemode(framework);
+    await gamemode.init();
+
+    // Cleanup on resource stop
+    on('onResourceStop', (resourceName) => {
+      if (resourceName === GetCurrentResourceName()) {
+        gamemode.destroy();
+      }
+    });
+  });
+}
