@@ -46,13 +46,11 @@ class FreemodeGamemode {
   setupPlayerEvents() {
     // Player connecting
     on('playerConnecting', (name, setKickReason, deferrals) => {
-      const source = global.source;
       console.log(`[Freemode] Player connecting: ${name} (${source})`);
     });
 
     // Player joined
     on('playerJoining', () => {
-      const source = global.source;
       const name = GetPlayerName(source);
 
       // Initialize player data
@@ -70,8 +68,7 @@ class FreemodeGamemode {
     });
 
     // Player dropped
-    on('playerDropped', (reason) => {
-      const source = global.source;
+    Framework.onNative('playerDropped', (source, reason) => {
       const playerData = this.players.get(source);
 
       if (playerData) {
@@ -121,6 +118,7 @@ class FreemodeGamemode {
    * Setup freemode commands
    */
   setupCommands() {
+    // Get chat-commands module from framework (plugin has direct access)
     const chatCommands = this.framework.getModule('chat-commands');
     if (!chatCommands) {
       console.log('[Freemode] ⚠️ Chat commands module not loaded');
@@ -591,27 +589,3 @@ class FreemodeGamemode {
 }
 
 module.exports = FreemodeGamemode;
-
-// Auto-initialize if running as standalone resource
-// Wait for ng_core to fully initialize (including all modules)
-on('nextgen:framework:ready', () => {
-  const framework = exports['ng_core'].GetFramework();
-
-  if (!framework) {
-    console.error('[Freemode] Failed to get framework!');
-    return;
-  }
-
-  // Initialize the gamemode
-  const gamemode = new FreemodeGamemode(framework);
-  gamemode.init().catch((error) => {
-    console.error('[Freemode] Initialization failed:', error);
-  });
-
-  // Cleanup on resource stop
-  on('onResourceStop', (resourceName) => {
-    if (resourceName === GetCurrentResourceName()) {
-      gamemode.destroy();
-    }
-  });
-});

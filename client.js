@@ -107,7 +107,7 @@ async function onPlayerSpawned() {
   await delay(1000);
 
   // Show welcome message
-  const notif = framework.getModule('notifications');
+  const notif = exports['ng_core'].GetModule('notifications');
   if (notif && !hasSpawned) {
     notif.success('Welcome to NextGen Freemode');
     await delay(2000);
@@ -122,7 +122,7 @@ async function onPlayerSpawned() {
  */
 function setupRPC() {
   // Spawn vehicle
-  framework.rpc.register('freemode:spawnVehicle', async (modelName) => {
+  exports['ng_core'].RegisterRPC('freemode:spawnVehicle', async (modelName) => {
     try {
       const playerPed = PlayerPedId();
       const coords = GetEntityCoords(playerPed, false);
@@ -181,13 +181,13 @@ function setupRPC() {
   });
 
   // Suicide/Respawn
-  framework.rpc.register('freemode:suicide', () => {
+  exports['ng_core'].RegisterRPC('freemode:suicide', () => {
     const playerPed = PlayerPedId();
     SetEntityHealth(playerPed, 0);
   });
 
   // Change spawn location
-  framework.rpc.register('freemode:setSpawn', (spawnKey) => {
+  exports['ng_core'].RegisterRPC('freemode:setSpawn', (spawnKey) => {
     const spawn = spawnLocations[spawnKey];
     if (!spawn) {
       return { success: false, error: 'Invalid spawn location' };

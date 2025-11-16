@@ -1,0 +1,8 @@
+{
+  "name": "ng_freemode",
+  "version": "1.0.0",
+  "description": "GTA Online style freemode gamemode for NextGen Framework",
+  "author": "NextGen Team",
+  "entry": "server.js",
+  "priority": 10
+}
