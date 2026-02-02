@@ -21,6 +21,9 @@ class FreemodeGamemode {
    * Initialize the gamemode
    */
   async init() {
+    if (this._initialized) return;
+    this._initialized = true;
+
     console.log('');
     console.log('╔════════════════════════════════════════╗');
     console.log('║   NextGen Freemode - GTA Online Style  ║');
@@ -43,15 +46,7 @@ class FreemodeGamemode {
     // Setup spawn locations
     this.setupSpawnLocations();
 
-    // Expose methods for other plugins
-    Bridge.expose(this, {
-      'SpawnPlayer': 'spawnPlayer',
-      'SpawnPlayerAt': 'spawnPlayerAt',
-      'GetPlayerData': { method: 'getPlayerData', fallback: null },
-      'GetSpawnLocations': { method: 'getSpawnLocations', fallback: {} },
-    });
-
-    console.log('[Freemode] Gamemode initialized');
+    console.log('[Freemode] ✅ Gamemode initialized');
   }
 
   /**
@@ -684,3 +679,6 @@ class FreemodeGamemode {
 }
 
 module.exports = FreemodeGamemode;
+
+// Self-initialization via Bridge (only runs in ng_freemode's FiveM context)
+// Guarded: skipped when require'd by plugin-manager in ng_core's context
