@@ -14,7 +14,7 @@ dependency 'ng_core'
 
 -- Bridge (shared: works on both server and client)
 shared_scripts {
-  '@ng_core/bridge.js'
+  '@ng_core/src/bridge.js'
 }
 
 -- Server scripts
