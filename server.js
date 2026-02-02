@@ -5,7 +5,7 @@
 
 class FreemodeGamemode {
   constructor(framework) {
-    this.framework = framework;
+    this.framework = framework || Framework;
     this.metadata = {
       name: 'NextGen Freemode',
       version: '1.0.0',
@@ -28,8 +28,14 @@ class FreemodeGamemode {
     console.log('╚════════════════════════════════════════╝');
     console.log('');
 
+    // Get spawn manager from ng_core
+    this.spawnManager = this.framework.getModule('spawn-manager');
+
     // Setup player events
     this.setupPlayerEvents();
+
+    // Setup spawn handlers
+    this.setupSpawnHandlers();
 
     // Setup commands
     this.setupCommands();
@@ -37,7 +43,32 @@ class FreemodeGamemode {
     // Setup spawn locations
     this.setupSpawnLocations();
 
-    console.log('[Freemode] ✅ Gamemode initialized');
+    // Expose methods for other plugins
+    Bridge.expose(this, {
+      'SpawnPlayer': 'spawnPlayer',
+      'SpawnPlayerAt': 'spawnPlayerAt',
+      'GetPlayerData': { method: 'getPlayerData', fallback: null },
+      'GetSpawnLocations': { method: 'getSpawnLocations', fallback: {} },
+    });
+
+    console.log('[Freemode] Gamemode initialized');
+  }
+
+  /**
+   * Get player data by source
+   * @param {number} source - Player source
+   * @returns {Object|null}
+   */
+  getPlayerData(source) {
+    return this.players.get(source) || null;
+  }
+
+  /**
+   * Get available spawn locations
+   * @returns {Object}
+   */
+  getSpawnLocations() {
+    return this.spawnLocations;
   }
 
   /**
@@ -68,12 +99,13 @@ class FreemodeGamemode {
     });
 
     // Player dropped
-    Framework.onNative('playerDropped', (source, reason) => {
-      const playerData = this.players.get(source);
+    on('playerDropped', (reason) => {
+      const src = global.source;
+      const playerData = this.players.get(src);
 
       if (playerData) {
         console.log(`[Freemode] Player left: ${playerData.name} (${reason})`);
-        this.players.delete(source);
+        this.players.delete(src);
       }
     });
 
@@ -112,6 +144,62 @@ class FreemodeGamemode {
     };
 
     console.log('[Freemode] ✅ Spawn locations loaded');
+  }
+
+  /**
+   * Setup spawn handlers using ng_core spawn-manager
+   */
+  setupSpawnHandlers() {
+    // Handle spawn request from client
+    this.framework.fivem.onNet('freemode:requestSpawn', () => {
+      const src = global.source;
+      this.spawnPlayer(src);
+    });
+
+    // Handle respawn request after death
+    this.framework.fivem.onNet('freemode:requestRespawn', () => {
+      const src = global.source;
+      this.spawnPlayer(src);
+    });
+
+    // Handle teleport to spawn location
+    this.framework.fivem.onNet('freemode:teleportToSpawn', (spawnKey) => {
+      const src = global.source;
+      const spawn = this.spawnLocations[spawnKey];
+      if (spawn) {
+        this.spawnPlayerAt(src, spawn.coords);
+      }
+    });
+
+    console.log('[Freemode] ✅ Spawn handlers registered');
+  }
+
+  /**
+   * Spawn player at their preferred location
+   */
+  spawnPlayer(source) {
+    const playerData = this.players.get(source);
+    const spawnKey = playerData?.spawn || 'lsia';
+    const spawn = this.spawnLocations[spawnKey] || this.spawnLocations.lsia;
+
+    this.spawnPlayerAt(source, spawn.coords);
+    console.log(`[Freemode] Spawning player ${source} at ${spawnKey}`);
+  }
+
+  /**
+   * Spawn player at specific coordinates using ng_core spawn-manager
+   */
+  spawnPlayerAt(source, coords) {
+    if (this.spawnManager) {
+      // Use ng_core spawn-manager
+      this.spawnManager.spawnPlayerAt(source, coords);
+    } else {
+      // Fallback: emit directly to client
+      this.framework.fivem.emitNet('ng_core:spawn-at', source, coords, {
+        fadeIn: true,
+        fadeDuration: 1500
+      });
+    }
   }
 
   /**
@@ -208,7 +296,12 @@ class FreemodeGamemode {
       const model = args[0];
 
       // Trigger client to spawn vehicle
-      this.framework.rpc.callClient('freemode:spawnVehicle', source, model)
+      const rpc = this.framework.getModule('rpc');
+      if (!rpc) {
+        chatCommands.sendMessage(source, '^1Error: ^7RPC module not available');
+        return;
+      }
+      rpc.callClient('freemode:spawnVehicle', source, model)
         .then((result) => {
           if (result.success) {
             chatCommands.sendMessage(source, `^2✓ Spawned vehicle: ^7${model}`);
@@ -227,8 +320,10 @@ class FreemodeGamemode {
 
     // Command: Suicide/Respawn
     chatCommands.register('suicide', (source) => {
-      this.framework.rpc.callClient('freemode:suicide', source)
-        .catch(() => {});
+      const rpcSuicide = this.framework.getModule('rpc');
+      if (rpcSuicide) {
+        rpcSuicide.callClient('freemode:suicide', source).catch(() => {});
+      }
       chatCommands.sendMessage(source, '^1You committed suicide');
     }, {
       plugin: 'ng_freemode',
