@@ -52,7 +52,7 @@ class FreemodeGamemode {
         // Setup commands
         this.setupCommands();
 
-        console.log('[Freemode] Gamemode initialized');
+        this.framework.log.info('Gamemode initialized');
     }
 
     /**
@@ -78,7 +78,7 @@ class FreemodeGamemode {
     setupPlayerEvents() {
         // Player connecting
         on('playerConnecting', (name, setKickReason, deferrals) => {
-            console.log(`[Freemode] Player connecting: ${name} (${source})`);
+            this.framework.log.info(`Player connecting: ${name} (${source})`);
         });
 
         // Player joined
@@ -96,7 +96,7 @@ class FreemodeGamemode {
                 joinTime: Date.now()
             });
 
-            console.log(`[Freemode] Player joined: ${name} (${source})`);
+            this.framework.log.info(`Player joined: ${name} (${source})`);
         });
 
         // Player dropped
@@ -105,12 +105,12 @@ class FreemodeGamemode {
             const playerData = this.players.get(src);
 
             if (playerData) {
-                console.log(`[Freemode] Player left: ${playerData.name} (${reason})`);
+                this.framework.log.info(`Player left: ${playerData.name} (${reason})`);
                 this.players.delete(src);
             }
         });
 
-        console.log('[Freemode] Player events registered');
+        this.framework.log.debug('Player events registered');
     }
 
     /**
@@ -144,7 +144,7 @@ class FreemodeGamemode {
             }
         };
 
-        console.log('[Freemode] Spawn locations loaded');
+        this.framework.log.debug('Spawn locations loaded');
     }
 
     /**
@@ -182,7 +182,7 @@ class FreemodeGamemode {
             }
         });
 
-        console.log('[Freemode] Spawn handlers registered');
+        this.framework.log.debug('Spawn handlers registered');
     }
 
     /**
@@ -262,7 +262,7 @@ class FreemodeGamemode {
                 handler(source, args, rawCommand);
             } catch (error) {
                 this.sendMessage(source, `^1Error: ^7${error.message}`);
-                console.log(`[Freemode] Command error (/${name}): ${error.message}`);
+                this.framework.log.error(`Command error (/${name}): ${error.message}`);
             }
         }, restricted);
 
@@ -431,7 +431,7 @@ class FreemodeGamemode {
 
             const message = args.join(' ');
             this.broadcastMessage(`^3[ANNOUNCEMENT] ^7${message}`);
-            console.log(`[Freemode] Player ${source} announced: ${message}`);
+            this.framework.log.info(`Player ${source} announced: ${message}`);
         }, {
             description: 'Broadcast message to all players',
             permission: 'command.announce',
@@ -575,7 +575,7 @@ class FreemodeGamemode {
                 .then(result => {
                     if (result.success) {
                         this.sendMessage(source, `^2+ Added to whitelist: ^7${identifier}`);
-                        console.log(`[Freemode] ${adminName} added ${identifier} to whitelist`);
+                        this.framework.log.info(`${adminName} added ${identifier} to whitelist`);
                     } else if (result.reason === 'already_whitelisted') {
                         this.sendMessage(source, `^3Already whitelisted: ^7${identifier}`);
                     } else {
@@ -606,7 +606,7 @@ class FreemodeGamemode {
                 .then(result => {
                     if (result.success) {
                         this.sendMessage(source, `^2+ Removed from whitelist: ^7${identifier}`);
-                        console.log(`[Freemode] ${adminName} removed ${identifier} from whitelist`);
+                        this.framework.log.info(`${adminName} removed ${identifier} from whitelist`);
                     } else if (result.reason === 'not_found') {
                         this.sendMessage(source, `^3Not found in whitelist: ^7${identifier}`);
                     } else {
@@ -684,7 +684,7 @@ class FreemodeGamemode {
                     if (result.success) {
                         this.sendMessage(source, '^2+ You have been added to whitelist');
                         this.sendMessage(source, `^5Your license: ^7${license}`);
-                        console.log(`[Freemode] ${playerName} self-added to whitelist: ${identifier}`);
+                        this.framework.log.info(`${playerName} self-added to whitelist: ${identifier}`);
                     } else if (result.reason === 'already_whitelisted') {
                         this.sendMessage(source, '^3You are already whitelisted');
                     } else {
@@ -699,14 +699,14 @@ class FreemodeGamemode {
             permission: 'command.whitelist'
         });
 
-        console.log('[Freemode] Commands registered');
+        this.framework.log.debug('Commands registered');
     }
 
     /**
      * Cleanup on resource stop
      */
     async destroy() {
-        console.log('[Freemode] Shutting down...');
+        this.framework.log.info('Shutting down...');
         this.players.clear();
     }
 }
