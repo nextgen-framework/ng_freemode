@@ -1,16 +1,35 @@
 /**
  * NextGen Freemode - Client Side
  * GTA Online style freemode gamemode
- * Uses ng_core bridge + spawn-manager module
  */
+
+/**
+ * Cross-resource export proxy
+ * @param {string} resource - Resource name to proxy
+ * @returns {Proxy}
+ */
+function Use(resource) {
+    return new Proxy({}, {
+        get(_, prop) {
+            return (...args) => exports[resource][prop](...args);
+        }
+    });
+}
+
+const ng_core = Use('ng_core');
 
 let hasSpawned = false;
 let spawnLocations = {};
 
-// Wait for framework via bridge
+// Wait for kernel ready
 setImmediate(async () => {
   try {
-    await ng_core.ready();
+    let attempts = 0;
+    while (attempts++ < 100) {
+      try { if (ng_core.IsReady()) break; } catch (e) {}
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (attempts > 100) throw new Error('Kernel not ready after 10s');
   } catch (e) {
     console.error('[Freemode] Framework not ready!', e.message || e);
     return;

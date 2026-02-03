@@ -12,11 +12,6 @@ resource_type 'gametype' { name = 'Freemode' }
 -- Dependencies
 dependency 'ng_core'
 
--- Bridge (shared: works on both server and client)
-shared_scripts {
-  '@ng_core/src/bridge.js'
-}
-
 -- Server scripts
 server_scripts {
   'server.js'
