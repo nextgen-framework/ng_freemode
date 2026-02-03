@@ -20,7 +20,7 @@ class CharacterPlugin {
     setupEvents() {
         // Client requests character list after connect
         this.framework.fivem.onNet('freemode:requestCharacters', async () => {
-            const src = source;
+            const src = global.source;
             try {
                 const characters = await this.ng.CallModule('character-manager', 'getPlayerCharacters', src);
                 this.framework.fivem.emitNet('freemode:characterList', src, characters || []);
@@ -32,7 +32,7 @@ class CharacterPlugin {
 
         // Client selected a character
         this.framework.fivem.onNet('freemode:selectCharacter', async (characterId) => {
-            const src = source;
+            const src = global.source;
             if (typeof characterId !== 'number') return;
 
             try {
@@ -50,7 +50,7 @@ class CharacterPlugin {
 
         // Save player state on disconnect
         this.framework.fivem.on('playerDropped', () => {
-            const src = source;
+            const src = global.source;
             this.savePlayerState(src);
             this.activeCharacters.delete(src);
         });

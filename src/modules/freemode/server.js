@@ -78,15 +78,17 @@ class FreemodeGamemode {
     setupPlayerEvents() {
         // Player connecting
         on('playerConnecting', (name, setKickReason, deferrals) => {
-            this.framework.log.info(`Player connecting: ${name} (${source})`);
+            const src = global.source;
+            this.framework.log.info(`Player connecting: ${name} (${src})`);
         });
 
         // Player joined
         on('playerJoining', () => {
-            const name = GetPlayerName(source);
+            const src = global.source;
+            const name = GetPlayerName(src);
 
             // Initialize player data
-            this.players.set(source, {
+            this.players.set(src, {
                 name: name,
                 money: 5000,
                 bank: 10000,
@@ -96,7 +98,7 @@ class FreemodeGamemode {
                 joinTime: Date.now()
             });
 
-            this.framework.log.info(`Player joined: ${name} (${source})`);
+            this.framework.log.info(`Player joined: ${name} (${src})`);
         });
 
         // Player dropped
@@ -203,6 +205,7 @@ class FreemodeGamemode {
             ng_core.CallModule('spawn-manager', 'spawnPlayerAt', source, coords);
         } catch (e) {
             // Fallback: emit directly to client
+            this.framework.log.warn(`spawn-manager unavailable, using fallback: ${e.message}`);
             this.framework.fivem.emitNet('ng_core:spawn-at', source, coords, {
                 fadeIn: true,
                 fadeDuration: 1500
