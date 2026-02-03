@@ -44,7 +44,8 @@ setImmediate(async () => {
  */
 function initializeFreemode() {
   setupSpawnPoints();
-  setupSpawn();
+  setupCharacterFlow();
+  setupSpawnEvents();
   setupRPC();
   setupDeathHandling();
   console.log('[Freemode] Client ready');
@@ -66,25 +67,91 @@ function setupSpawnPoints() {
   console.log('[Freemode] Spawn points registered');
 }
 
+// ============================================================
+// Character Flow - gates spawn behind character selection
+// ============================================================
+
 /**
- * Setup spawn system using ng_core spawn-manager
+ * Setup character selection flow
  */
-function setupSpawn() {
+function setupCharacterFlow() {
+  // Receive character list from server
+  onNet('freemode:characterList', (characters) => {
+    console.log(`[Freemode] Received ${characters.length} character(s)`);
+
+    if (characters.length === 0) {
+      // Spawn player at default location first, then prompt to create
+      emitNet('freemode:requestSpawn');
+      ng_core.NotifyWarning('No character found');
+      ng_core.NotifyInfo('Use /createchar <firstname> <lastname> [m/f]');
+    } else if (characters.length === 1) {
+      // Auto-select single character
+      emitNet('freemode:selectCharacter', characters[0].id);
+    } else {
+      showCharacterMenu(characters);
+    }
+  });
+
+  // Server confirms character ready → spawn at last position or request default
+  onNet('freemode:characterReady', (character) => {
+    console.log(`[Freemode] Character ready: ${character.fullname}`);
+    if (character.lastPosition) {
+      // Spawn directly at last saved position
+      emitNet('freemode:requestSpawnAt', character.lastPosition);
+    } else {
+      emitNet('freemode:requestSpawn');
+    }
+  });
+
+  // Request characters on connect
+  on('onClientGameTypeStart', () => {
+    emitNet('freemode:requestCharacters');
+  });
+
+  setTimeout(() => {
+    if (!hasSpawned) {
+      emitNet('freemode:requestCharacters');
+    }
+  }, 2000);
+}
+
+/**
+ * Show native menu for character selection
+ */
+function showCharacterMenu(characters) {
+  const items = characters.map(c => ({
+    label: c.fullname,
+    description: `ID: ${c.id} | ${c.gender === 'f' ? 'Female' : 'Male'}`,
+    onSelect: () => {
+      emitNet('freemode:selectCharacter', c.id);
+    }
+  }));
+
+  try {
+    ng_core.OpenMenu({
+      title: 'Select Character',
+      items: items
+    });
+  } catch (e) {
+    // Fallback: auto-select first
+    console.log('[Freemode] Menu unavailable, auto-selecting first character');
+    emitNet('freemode:selectCharacter', characters[0].id);
+  }
+}
+
+// ============================================================
+// Spawn Events
+// ============================================================
+
+/**
+ * Setup spawn event handlers
+ */
+function setupSpawnEvents() {
   on('ng_core:player-spawned', () => {
     console.log('[Freemode] Received ng_core:player-spawned event');
     hasSpawned = true;
     onPlayerSpawned();
   });
-
-  on('onClientGameTypeStart', () => {
-    emitNet('freemode:requestSpawn');
-  });
-
-  setTimeout(() => {
-    if (!hasSpawned) {
-      emitNet('freemode:requestSpawn');
-    }
-  }, 2000);
 }
 
 /**

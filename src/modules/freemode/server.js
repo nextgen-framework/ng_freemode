@@ -151,10 +151,20 @@ class FreemodeGamemode {
      * Setup spawn handlers using local kernel FiveM wrappers
      */
     setupSpawnHandlers() {
-        // Handle spawn request from client
+        // Handle spawn request from client (default location)
         this.framework.fivem.onNet('freemode:requestSpawn', () => {
             const src = global.source;
             this.spawnPlayer(src);
+        });
+
+        // Handle spawn at specific coords (last position)
+        this.framework.fivem.onNet('freemode:requestSpawnAt', (coords) => {
+            const src = global.source;
+            if (coords && typeof coords.x === 'number') {
+                this.spawnPlayerAt(src, coords);
+            } else {
+                this.spawnPlayer(src);
+            }
         });
 
         // Handle respawn request after death
@@ -182,9 +192,7 @@ class FreemodeGamemode {
         const playerData = this.players.get(source);
         const spawnKey = playerData?.spawn || 'lsia';
         const spawn = this.spawnLocations[spawnKey] || this.spawnLocations.lsia;
-
         this.spawnPlayerAt(source, spawn.coords);
-        console.log(`[Freemode] Spawning player ${source} at ${spawnKey}`);
     }
 
     /**
