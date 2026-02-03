@@ -7,12 +7,12 @@
 let hasSpawned = false;
 let spawnLocations = {};
 
-// Wait for framework via bridge (replaces manual polling)
+// Wait for framework via bridge
 setImmediate(async () => {
   try {
-    await Bridge.ready();
+    await ng_core.ready();
   } catch (e) {
-    console.error('[Freemode] Framework not ready!');
+    console.error('[Freemode] Framework not ready!', e.message || e);
     return;
   }
 
@@ -58,12 +58,12 @@ function setupSpawn() {
   });
 
   on('onClientGameTypeStart', () => {
-    Framework.fivem.emitNet('freemode:requestSpawn');
+    emitNet('freemode:requestSpawn');
   });
 
   setTimeout(() => {
     if (!hasSpawned) {
-      Framework.fivem.emitNet('freemode:requestSpawn');
+      emitNet('freemode:requestSpawn');
     }
   }, 2000);
 }
@@ -77,29 +77,20 @@ async function onPlayerSpawned() {
 
   if (!welcomeShown) {
     welcomeShown = true;
-    const notif = Framework.getModule('notifications');
-    if (notif) {
-      notif.success('Welcome to NextGen Freemode');
-      await delay(2000);
-      notif.info('Use /help to see available commands');
-    }
+    ng_core.NotifySuccess('Welcome to NextGen Freemode');
+    await delay(2000);
+    ng_core.NotifyInfo('Use /help to see available commands');
   }
 
   console.log('[Freemode] Player spawned');
 }
 
 /**
- * Setup RPC handlers
+ * Setup RPC handlers (via ng_core exports - cross-resource)
  */
 function setupRPC() {
-  const rpc = Framework.getModule('rpc');
-  if (!rpc) {
-    console.log('[Freemode] RPC module not available');
-    return;
-  }
-
   // Spawn vehicle
-  rpc.register('freemode:spawnVehicle', async (modelName) => {
+  ng_core.RegisterRPC('freemode:spawnVehicle', async (modelName) => {
     try {
       const playerPed = PlayerPedId();
       const coords = GetEntityCoords(playerPed, false);
@@ -148,19 +139,19 @@ function setupRPC() {
   });
 
   // Suicide/Respawn
-  rpc.register('freemode:suicide', () => {
+  ng_core.RegisterRPC('freemode:suicide', () => {
     const playerPed = PlayerPedId();
     SetEntityHealth(playerPed, 0);
   });
 
   // Change spawn location
-  rpc.register('freemode:setSpawn', (spawnKey) => {
+  ng_core.RegisterRPC('freemode:setSpawn', (spawnKey) => {
     const spawn = spawnLocations[spawnKey];
     if (!spawn) {
       return { success: false, error: 'Invalid spawn location' };
     }
 
-    Framework.fivem.emitNet('freemode:teleportToSpawn', spawnKey);
+    emitNet('freemode:teleportToSpawn', spawnKey);
     return { success: true };
   });
 
@@ -183,7 +174,7 @@ function setupDeathHandling() {
       console.log('[Freemode] Player died, respawning in 5 seconds...');
 
       respawnTimer = setTimeout(() => {
-        Framework.fivem.emitNet('freemode:requestRespawn');
+        emitNet('freemode:requestRespawn');
         isDead = false;
       }, 5000);
     } else if (!dead && isDead) {
