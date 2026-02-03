@@ -7,6 +7,7 @@ class CharacterPlugin {
     constructor(framework) {
         this.framework = framework;
         this.ng = null;
+        this.activeCharacters = new Map(); // source => characterId
     }
 
     async init() {
@@ -37,6 +38,7 @@ class CharacterPlugin {
             try {
                 const result = await this.ng.CallModule('character-manager', 'selectCharacter', src, characterId);
                 if (result && result.success) {
+                    this.activeCharacters.set(src, result.character.id);
                     this.spawnWithCharacter(src, result.character);
                 } else {
                     this.ng.SendMessage(src, `[Character] Selection failed: ${result?.reason || 'unknown'}`);
@@ -46,9 +48,11 @@ class CharacterPlugin {
             }
         });
 
-        // Save position on disconnect
+        // Save player state on disconnect
         this.framework.fivem.on('playerDropped', () => {
-            this.savePosition(source);
+            const src = source;
+            this.savePlayerState(src);
+            this.activeCharacters.delete(src);
         });
     }
 
@@ -71,6 +75,7 @@ class CharacterPlugin {
                 const result = await this.ng.CallModule('character-manager', 'createCharacter', src, data);
                 if (result && result.success) {
                     await this.ng.CallModule('character-manager', 'selectCharacter', src, result.characterId);
+                    this.activeCharacters.set(src, result.characterId);
                     this.ng.SendMessage(src, `[Character] ${data.firstname} ${data.lastname} created`);
                     this.spawnWithCharacter(src, result.character);
                 } else {
@@ -114,7 +119,7 @@ class CharacterPlugin {
                     return;
                 }
                 characters.forEach(c => {
-                    this.ng.SendMessage(src, `[Character] #${c.id} - ${c.fullname} (${c.gender})`);
+                    this.ng.SendMessage(src, `[Character] #${c.id} - ${c.fullname} (${c.data.gender})`);
                 });
             } catch (error) {
                 this.ng.SendMessage(src, '[Character] Internal error');
@@ -123,26 +128,29 @@ class CharacterPlugin {
     }
 
     /**
-     * Spawn character - load last position, send model info to client
+     * Spawn character - read state from metadata, send to client
      */
-    async spawnWithCharacter(src, character) {
-        const model = character.gender === 'f' ? 'mp_f_freemode_01' : 'mp_m_freemode_01';
-        const lastPos = await this.loadPosition(src);
+    spawnWithCharacter(src, character) {
+        const data = character.data || {};
+        const meta = character.metadata || {};
+        const model = data.gender === 'f' ? 'mp_f_freemode_01' : 'mp_m_freemode_01';
 
         this.framework.fivem.emitNet('freemode:characterReady', src, {
             ...character,
             model,
-            lastPosition: lastPos
+            lastPosition: meta.position || null,
+            lastHealth: meta.health ?? 200,
+            lastArmor: meta.armor ?? 0
         });
     }
 
     /**
-     * Save player position to database
+     * Save player state (position, health, armor) into character metadata
      */
-    savePosition(src) {
+    savePlayerState(src) {
         try {
-            const license = this._getLicense(src);
-            if (!license) return;
+            const charId = this.activeCharacters.get(src);
+            if (!charId) return;
 
             const ped = GetPlayerPed(src);
             if (!ped || ped === 0) return;
@@ -153,55 +161,18 @@ class CharacterPlugin {
             // Skip invalid positions (ped already despawned returns 0,0,0)
             if (Math.abs(coords[0]) < 1 && Math.abs(coords[1]) < 1) return;
 
-            this.ng.CallModule('database', 'execute',
-                'INSERT INTO player_positions (identifier, x, y, z, heading, updated_at) ' +
-                'VALUES (?, ?, ?, ?, ?, NOW()) ' +
-                'ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), heading = VALUES(heading), updated_at = NOW()',
-                [license, coords[0], coords[1], coords[2], heading]
-            );
+            const health = GetEntityHealth(ped);
+            const armor = GetPedArmour(ped);
+
+            // Fire-and-forget merge into character metadata
+            this.ng.CallModule('character-manager', 'mergeCharacterMetadata', charId, {
+                position: { x: coords[0], y: coords[1], z: coords[2], heading },
+                health,
+                armor
+            });
         } catch (e) {
-            this.framework.log.error(`[Character] Failed to save position: ${e.message}`);
+            this.framework.log.error(`[Character] Failed to save player state: ${e.message}`);
         }
-    }
-
-    /**
-     * Load last saved position from database
-     * @returns {Object|null} { x, y, z, heading }
-     */
-    async loadPosition(src) {
-        try {
-            const license = this._getLicense(src);
-            if (!license) return null;
-
-            const result = await this.ng.CallModule('database', 'query',
-                'SELECT x, y, z, heading FROM player_positions WHERE identifier = ?',
-                [license]
-            );
-
-            if (!result || result.length === 0) return null;
-
-            return {
-                x: result[0].x,
-                y: result[0].y,
-                z: result[0].z,
-                heading: result[0].heading || 0
-            };
-        } catch (e) {
-            this.framework.log.error(`[Character] Failed to load position: ${e.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * Get player license identifier (without prefix)
-     */
-    _getLicense(src) {
-        const numIds = GetNumPlayerIdentifiers(src);
-        for (let i = 0; i < numIds; i++) {
-            const id = GetPlayerIdentifier(src, i);
-            if (id && id.startsWith('license:')) return id.slice(8);
-        }
-        return null;
     }
 
     async destroy() {

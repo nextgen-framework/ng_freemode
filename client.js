@@ -20,6 +20,7 @@ const ng_core = Use('ng_core');
 
 let hasSpawned = false;
 let spawnLocations = {};
+let pendingCharacter = null;
 
 // Wait for kernel ready
 setImmediate(async () => {
@@ -95,8 +96,8 @@ function setupCharacterFlow() {
   // Server confirms character ready → spawn at last position or request default
   onNet('freemode:characterReady', (character) => {
     console.log(`[Freemode] Character ready: ${character.fullname}`);
+    pendingCharacter = character;
     if (character.lastPosition) {
-      // Spawn directly at last saved position
       emitNet('freemode:requestSpawnAt', character.lastPosition);
     } else {
       emitNet('freemode:requestSpawn');
@@ -121,7 +122,7 @@ function setupCharacterFlow() {
 function showCharacterMenu(characters) {
   const items = characters.map(c => ({
     label: c.fullname,
-    description: `ID: ${c.id} | ${c.gender === 'f' ? 'Female' : 'Male'}`,
+    description: `ID: ${c.id} | ${c.data?.gender === 'f' ? 'Female' : 'Male'}`,
     onSelect: () => {
       emitNet('freemode:selectCharacter', c.id);
     }
@@ -160,6 +161,18 @@ function setupSpawnEvents() {
 let welcomeShown = false;
 async function onPlayerSpawned() {
   await delay(1000);
+
+  // Restore health and armor from saved state
+  if (pendingCharacter) {
+    const playerPed = PlayerPedId();
+    if (pendingCharacter.lastHealth !== undefined) {
+      SetEntityHealth(playerPed, pendingCharacter.lastHealth);
+    }
+    if (pendingCharacter.lastArmor !== undefined && pendingCharacter.lastArmor > 0) {
+      SetPedArmour(playerPed, pendingCharacter.lastArmor);
+    }
+    pendingCharacter = null;
+  }
 
   if (!welcomeShown) {
     welcomeShown = true;
