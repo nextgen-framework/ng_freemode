@@ -12,12 +12,13 @@ resource_type 'gametype' { name = 'Freemode' }
 -- Dependencies
 dependency 'ng_core'
 
--- Server scripts
+-- Server: kernel + modules
 server_scripts {
-  'server.js'
+    'src/main.js',
+    'src/modules/**/server.js'
 }
 
 -- Client scripts
 client_scripts {
-  'client.js'
+    'client.js'
 }
