@@ -40,6 +40,9 @@ class FreemodeGamemode {
         console.log('\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d');
         console.log('');
 
+        // Setup spawn locations (before handlers that depend on them)
+        this.setupSpawnLocations();
+
         // Setup player events
         this.setupPlayerEvents();
 
@@ -48,9 +51,6 @@ class FreemodeGamemode {
 
         // Setup commands
         this.setupCommands();
-
-        // Setup spawn locations
-        this.setupSpawnLocations();
 
         console.log('[Freemode] Gamemode initialized');
     }
@@ -203,31 +203,117 @@ class FreemodeGamemode {
     }
 
     /**
-     * Setup freemode commands via ng_core exports
+     * Send chat message to a player via ng_core
+     * @param {number} source - Player source
+     * @param {string} message - Message text
+     */
+    sendMessage(source, message) {
+        try {
+            ng_core.SendMessage(source, message);
+        } catch (e) {
+            // Fallback: direct TriggerClientEvent
+            TriggerClientEvent('chat:addMessage', source, {
+                color: [255, 255, 255],
+                multiline: true,
+                args: ['System', message]
+            });
+        }
+    }
+
+    /**
+     * Broadcast chat message to all players via ng_core
+     * @param {string} message - Message text
+     */
+    broadcastMessage(message) {
+        try {
+            ng_core.BroadcastMessage(message);
+        } catch (e) {
+            TriggerClientEvent('chat:addMessage', -1, {
+                color: [255, 255, 255],
+                multiline: true,
+                args: ['System', message]
+            });
+        }
+    }
+
+    /**
+     * Register a command using FiveM native (no cross-resource function passing)
+     * @param {string} name - Command name
+     * @param {Function} handler - Handler (source, args) => void
+     * @param {Object} options - { description, permission, aliases, params }
+     */
+    _registerCommand(name, handler, options = {}) {
+        const restricted = !!options.permission;
+
+        RegisterCommand(name, (source, args, rawCommand) => {
+            if (options.permission && !IsPlayerAceAllowed(source, options.permission)) {
+                this.sendMessage(source, "^1Error: ^7You don't have permission to use this command");
+                return;
+            }
+            try {
+                handler(source, args, rawCommand);
+            } catch (error) {
+                this.sendMessage(source, `^1Error: ^7${error.message}`);
+                console.log(`[Freemode] Command error (/${name}): ${error.message}`);
+            }
+        }, restricted);
+
+        // Register aliases
+        if (options.aliases) {
+            for (const alias of options.aliases) {
+                RegisterCommand(alias, (source, args, rawCommand) => {
+                    if (options.permission && !IsPlayerAceAllowed(source, options.permission)) {
+                        this.sendMessage(source, "^1Error: ^7You don't have permission");
+                        return;
+                    }
+                    try {
+                        handler(source, args, rawCommand);
+                    } catch (error) {
+                        this.sendMessage(source, `^1Error: ^7${error.message}`);
+                    }
+                }, restricted);
+            }
+        }
+
+        // Chat suggestions for auto-complete
+        const params = (options.params || []).map(p => ({ name: p.name || '', help: p.help || '' }));
+        if (options.description) {
+            TriggerClientEvent('chat:addSuggestion', -1, `/${name}`, options.description, params);
+            if (options.aliases) {
+                for (const alias of options.aliases) {
+                    TriggerClientEvent('chat:addSuggestion', -1, `/${alias}`, `${options.description} (alias)`, params);
+                }
+            }
+        }
+    }
+
+    /**
+     * Setup freemode commands using FiveM native RegisterCommand
+     * Note: Cannot pass callbacks through FiveM exports (serialization limit),
+     * so commands are registered locally with native RegisterCommand.
      */
     setupCommands() {
         const rpc = NgModule('rpc');
         const whitelist = NgModule('whitelist');
 
         // Command: Show player stats
-        ng_core.RegisterCommand('stats', (source) => {
+        this._registerCommand('stats', (source) => {
             const playerData = this.players.get(source);
             if (!playerData) return;
 
-            ng_core.SendMessage(source, '^3=== Player Stats ===');
-            ng_core.SendMessage(source, `^5Name: ^7${playerData.name}`);
-            ng_core.SendMessage(source, `^5Level: ^7${playerData.level}`);
-            ng_core.SendMessage(source, `^5Cash: ^2$${playerData.money}`);
-            ng_core.SendMessage(source, `^5Bank: ^2$${playerData.bank}`);
+            this.sendMessage(source, '^3=== Player Stats ===');
+            this.sendMessage(source, `^5Name: ^7${playerData.name}`);
+            this.sendMessage(source, `^5Level: ^7${playerData.level}`);
+            this.sendMessage(source, `^5Cash: ^2$${playerData.money}`);
+            this.sendMessage(source, `^5Bank: ^2$${playerData.bank}`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Show your player statistics'
         });
 
         // Command: Give money (admin)
-        ng_core.RegisterCommand('givemoney', (source, args) => {
+        this._registerCommand('givemoney', (source, args) => {
             if (args.length < 2) {
-                ng_core.SendMessage(source, '^1Usage: ^7/givemoney <player_id> <amount>');
+                this.sendMessage(source, '^1Usage: ^7/givemoney <player_id> <amount>');
                 return;
             }
 
@@ -235,57 +321,54 @@ class FreemodeGamemode {
             const amount = parseInt(args[1]);
 
             if (isNaN(targetId) || isNaN(amount) || amount <= 0) {
-                ng_core.SendMessage(source, '^1Error: ^7Invalid player ID or amount');
+                this.sendMessage(source, '^1Error: ^7Invalid player ID or amount');
                 return;
             }
 
             const targetData = this.players.get(targetId);
             if (!targetData) {
-                ng_core.SendMessage(source, '^1Error: ^7Player not found');
+                this.sendMessage(source, '^1Error: ^7Player not found');
                 return;
             }
 
             targetData.money += amount;
-            ng_core.SendMessage(source, `^2+ Gave $${amount} to ${targetData.name}`);
-            ng_core.SendMessage(targetId, `^2+$${amount} from admin`);
+            this.sendMessage(source, `^2+ Gave $${amount} to ${targetData.name}`);
+            this.sendMessage(targetId, `^2+$${amount} from admin`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Give money to a player',
             permission: 'command.givemoney'
         });
 
         // Command: Set spawn location
-        ng_core.RegisterCommand('setspawn', (source, args) => {
+        this._registerCommand('setspawn', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^3Available spawn locations:');
+                this.sendMessage(source, '^3Available spawn locations:');
                 Object.entries(this.spawnLocations).forEach(([key, loc]) => {
-                    ng_core.SendMessage(source, `  ^5${key} ^7- ${loc.name}`);
+                    this.sendMessage(source, `  ^5${key} ^7- ${loc.name}`);
                 });
                 return;
             }
 
             const spawnKey = args[0].toLowerCase();
             if (!this.spawnLocations[spawnKey]) {
-                ng_core.SendMessage(source, '^1Error: ^7Invalid spawn location');
+                this.sendMessage(source, '^1Error: ^7Invalid spawn location');
                 return;
             }
 
             const playerData = this.players.get(source);
             if (playerData) {
                 playerData.spawn = spawnKey;
-                ng_core.SendMessage(source, `^2+ Spawn location set to: ^7${this.spawnLocations[spawnKey].name}`);
+                this.sendMessage(source, `^2+ Spawn location set to: ^7${this.spawnLocations[spawnKey].name}`);
             }
         }, {
-            plugin: 'ng_freemode',
-            description: 'Set your spawn location',
-            usage: '/setspawn [location]'
+            description: 'Set your spawn location'
         });
 
         // Command: Spawn vehicle
-        ng_core.RegisterCommand('car', (source, args) => {
+        this._registerCommand('car', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/car <vehicle_model>');
-                ng_core.SendMessage(source, '^5Examples: ^7/car adder, /car zentorno');
+                this.sendMessage(source, '^1Usage: ^7/car <vehicle_model>');
+                this.sendMessage(source, '^5Examples: ^7/car adder, /car zentorno');
                 return;
             }
 
@@ -293,32 +376,30 @@ class FreemodeGamemode {
             rpc.callClient('freemode:spawnVehicle', source, model)
                 .then((result) => {
                     if (result.success) {
-                        ng_core.SendMessage(source, `^2+ Spawned vehicle: ^7${model}`);
+                        this.sendMessage(source, `^2+ Spawned vehicle: ^7${model}`);
                     } else {
-                        ng_core.SendMessage(source, `^1Error: ^7${result.error || 'Failed to spawn vehicle'}`);
+                        this.sendMessage(source, `^1Error: ^7${result.error || 'Failed to spawn vehicle'}`);
                     }
                 })
                 .catch(() => {
-                    ng_core.SendMessage(source, '^1Error: ^7Failed to spawn vehicle');
+                    this.sendMessage(source, '^1Error: ^7Failed to spawn vehicle');
                 });
         }, {
-            plugin: 'ng_freemode',
             description: 'Spawn a vehicle',
             aliases: ['vehicle', 'v']
         });
 
         // Command: Suicide/Respawn
-        ng_core.RegisterCommand('suicide', (source) => {
+        this._registerCommand('suicide', (source) => {
             rpc.callClient('freemode:suicide', source).catch(() => {});
-            ng_core.SendMessage(source, '^1You committed suicide');
+            this.sendMessage(source, '^1You committed suicide');
         }, {
-            plugin: 'ng_freemode',
             description: 'Respawn your character',
             aliases: ['kill', 'respawn']
         });
 
         // Command: List online players
-        ng_core.RegisterCommand('players', (source) => {
+        this._registerCommand('players', (source) => {
             const players = [];
             for (let i = 0; i < GetNumPlayerIndices(); i++) {
                 const playerId = GetPlayerFromIndex(i);
@@ -326,26 +407,24 @@ class FreemodeGamemode {
                 players.push(`^5[${playerId}]^7 ${name}`);
             }
 
-            ng_core.SendMessage(source, `^3=== Online Players (${players.length}) ===`);
-            players.forEach(player => ng_core.SendMessage(source, player));
+            this.sendMessage(source, `^3=== Online Players (${players.length}) ===`);
+            players.forEach(player => this.sendMessage(source, player));
         }, {
-            plugin: 'ng_freemode',
             description: 'List online players',
             aliases: ['online', 'list']
         });
 
         // Command: Announce (admin)
-        ng_core.RegisterCommand('announce', (source, args) => {
+        this._registerCommand('announce', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/announce <message>');
+                this.sendMessage(source, '^1Usage: ^7/announce <message>');
                 return;
             }
 
             const message = args.join(' ');
-            ng_core.BroadcastMessage(`^3[ANNOUNCEMENT] ^7${message}`);
+            this.broadcastMessage(`^3[ANNOUNCEMENT] ^7${message}`);
             console.log(`[Freemode] Player ${source} announced: ${message}`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Broadcast message to all players',
             permission: 'command.announce',
             aliases: ['broadcast', 'ann'],
@@ -355,15 +434,15 @@ class FreemodeGamemode {
         });
 
         // Command: Goto player (admin)
-        ng_core.RegisterCommand('goto', (source, args) => {
+        this._registerCommand('goto', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/goto <player_id>');
+                this.sendMessage(source, '^1Usage: ^7/goto <player_id>');
                 return;
             }
 
             const targetId = parseInt(args[0]);
             if (isNaN(targetId) || !GetPlayerPed(targetId)) {
-                ng_core.SendMessage(source, '^1Error: ^7Invalid player ID');
+                this.sendMessage(source, '^1Error: ^7Invalid player ID');
                 return;
             }
 
@@ -373,9 +452,8 @@ class FreemodeGamemode {
             const ped = GetPlayerPed(source);
             SetEntityCoords(ped, x, y, z, false, false, false, false);
 
-            ng_core.SendMessage(source, `^2Teleported to ^7${GetPlayerName(targetId)}`);
+            this.sendMessage(source, `^2Teleported to ^7${GetPlayerName(targetId)}`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Teleport to a player',
             permission: 'command.goto',
             aliases: ['tp'],
@@ -385,15 +463,15 @@ class FreemodeGamemode {
         });
 
         // Command: Bring player (admin)
-        ng_core.RegisterCommand('bring', (source, args) => {
+        this._registerCommand('bring', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/bring <player_id>');
+                this.sendMessage(source, '^1Usage: ^7/bring <player_id>');
                 return;
             }
 
             const targetId = parseInt(args[0]);
             if (isNaN(targetId) || !GetPlayerPed(targetId)) {
-                ng_core.SendMessage(source, '^1Error: ^7Invalid player ID');
+                this.sendMessage(source, '^1Error: ^7Invalid player ID');
                 return;
             }
 
@@ -403,10 +481,9 @@ class FreemodeGamemode {
             const targetPed = GetPlayerPed(targetId);
             SetEntityCoords(targetPed, x, y, z, false, false, false, false);
 
-            ng_core.SendMessage(source, `^2Brought ^7${GetPlayerName(targetId)}^2 to you`);
-            ng_core.SendMessage(targetId, `^2You were brought to ^7${GetPlayerName(source)}`);
+            this.sendMessage(source, `^2Brought ^7${GetPlayerName(targetId)}^2 to you`);
+            this.sendMessage(targetId, `^2You were brought to ^7${GetPlayerName(source)}`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Bring a player to you',
             permission: 'command.bring',
             params: [
@@ -415,13 +492,13 @@ class FreemodeGamemode {
         });
 
         // Command: Heal player
-        ng_core.RegisterCommand('heal', (source, args) => {
+        this._registerCommand('heal', (source, args) => {
             let targetId = source;
 
             if (args.length > 0) {
                 targetId = parseInt(args[0]);
                 if (isNaN(targetId) || !GetPlayerPed(targetId)) {
-                    ng_core.SendMessage(source, '^1Error: ^7Invalid player ID');
+                    this.sendMessage(source, '^1Error: ^7Invalid player ID');
                     return;
                 }
             }
@@ -430,13 +507,12 @@ class FreemodeGamemode {
             SetEntityHealth(targetPed, 200);
 
             if (targetId === source) {
-                ng_core.SendMessage(source, '^2You healed yourself');
+                this.sendMessage(source, '^2You healed yourself');
             } else {
-                ng_core.SendMessage(source, `^2Healed ^7${GetPlayerName(targetId)}`);
-                ng_core.SendMessage(targetId, `^2You were healed by ^7${GetPlayerName(source)}`);
+                this.sendMessage(source, `^2Healed ^7${GetPlayerName(targetId)}`);
+                this.sendMessage(targetId, `^2You were healed by ^7${GetPlayerName(source)}`);
             }
         }, {
-            plugin: 'ng_freemode',
             description: 'Heal yourself or a player',
             params: [
                 { name: 'player_id', help: 'Target player ID (optional)' }
@@ -444,10 +520,10 @@ class FreemodeGamemode {
         });
 
         // Command: Give weapon (admin)
-        ng_core.RegisterCommand('weapon', (source, args) => {
+        this._registerCommand('weapon', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/weapon <weapon_name>');
-                ng_core.SendMessage(source, '^5Examples: ^7pistol, smg, rifle, shotgun');
+                this.sendMessage(source, '^1Usage: ^7/weapon <weapon_name>');
+                this.sendMessage(source, '^5Examples: ^7pistol, smg, rifle, shotgun');
                 return;
             }
 
@@ -465,9 +541,8 @@ class FreemodeGamemode {
             const ped = GetPlayerPed(source);
 
             GiveWeaponToPed(ped, GetHashKey(weaponHash), 250, false, true);
-            ng_core.SendMessage(source, `^2Weapon given: ^7${weaponName}`);
+            this.sendMessage(source, `^2Weapon given: ^7${weaponName}`);
         }, {
-            plugin: 'ng_freemode',
             description: 'Give yourself a weapon',
             permission: 'command.weapon',
             aliases: ['gun'],
@@ -479,10 +554,10 @@ class FreemodeGamemode {
         // ===== Whitelist Commands =====
 
         // Command: Whitelist add (admin)
-        ng_core.RegisterCommand('wladd', (source, args) => {
+        this._registerCommand('wladd', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/wladd <identifier>');
-                ng_core.SendMessage(source, '^5Example: ^7/wladd license:716a655091a9c8579d4709deb5cfec4da3902774');
+                this.sendMessage(source, '^1Usage: ^7/wladd <identifier>');
+                this.sendMessage(source, '^5Example: ^7/wladd license:716a655091a9c8579d4709deb5cfec4da3902774');
                 return;
             }
 
@@ -491,19 +566,18 @@ class FreemodeGamemode {
             whitelist.add(identifier, adminName, 'Added via command')
                 .then(result => {
                     if (result.success) {
-                        ng_core.SendMessage(source, `^2+ Added to whitelist: ^7${identifier}`);
+                        this.sendMessage(source, `^2+ Added to whitelist: ^7${identifier}`);
                         console.log(`[Freemode] ${adminName} added ${identifier} to whitelist`);
                     } else if (result.reason === 'already_whitelisted') {
-                        ng_core.SendMessage(source, `^3Already whitelisted: ^7${identifier}`);
+                        this.sendMessage(source, `^3Already whitelisted: ^7${identifier}`);
                     } else {
-                        ng_core.SendMessage(source, `^1Error: ^7${result.reason}`);
+                        this.sendMessage(source, `^1Error: ^7${result.reason}`);
                     }
                 })
                 .catch(error => {
-                    ng_core.SendMessage(source, `^1Error: ^7${error.message}`);
+                    this.sendMessage(source, `^1Error: ^7${error.message}`);
                 });
         }, {
-            plugin: 'ng_freemode',
             description: 'Add player to whitelist',
             permission: 'command.whitelist',
             params: [
@@ -512,9 +586,9 @@ class FreemodeGamemode {
         });
 
         // Command: Whitelist remove (admin)
-        ng_core.RegisterCommand('wlremove', (source, args) => {
+        this._registerCommand('wlremove', (source, args) => {
             if (args.length === 0) {
-                ng_core.SendMessage(source, '^1Usage: ^7/wlremove <identifier>');
+                this.sendMessage(source, '^1Usage: ^7/wlremove <identifier>');
                 return;
             }
 
@@ -523,19 +597,18 @@ class FreemodeGamemode {
             whitelist.remove(identifier, adminName, 'Removed via command')
                 .then(result => {
                     if (result.success) {
-                        ng_core.SendMessage(source, `^2+ Removed from whitelist: ^7${identifier}`);
+                        this.sendMessage(source, `^2+ Removed from whitelist: ^7${identifier}`);
                         console.log(`[Freemode] ${adminName} removed ${identifier} from whitelist`);
                     } else if (result.reason === 'not_found') {
-                        ng_core.SendMessage(source, `^3Not found in whitelist: ^7${identifier}`);
+                        this.sendMessage(source, `^3Not found in whitelist: ^7${identifier}`);
                     } else {
-                        ng_core.SendMessage(source, `^1Error: ^7${result.reason}`);
+                        this.sendMessage(source, `^1Error: ^7${result.reason}`);
                     }
                 })
                 .catch(error => {
-                    ng_core.SendMessage(source, `^1Error: ^7${error.message}`);
+                    this.sendMessage(source, `^1Error: ^7${error.message}`);
                 });
         }, {
-            plugin: 'ng_freemode',
             description: 'Remove player from whitelist',
             permission: 'command.whitelist',
             aliases: ['wldel'],
@@ -545,55 +618,53 @@ class FreemodeGamemode {
         });
 
         // Command: Whitelist list (admin)
-        ng_core.RegisterCommand('wllist', (source) => {
+        this._registerCommand('wllist', (source) => {
             whitelist.getAll()
                 .then(list => {
-                    ng_core.SendMessage(source, `^3=== Whitelist (${list.length} entries) ===`);
+                    this.sendMessage(source, `^3=== Whitelist (${list.length} entries) ===`);
                     if (list.length === 0) {
-                        ng_core.SendMessage(source, '^7No whitelisted players');
+                        this.sendMessage(source, '^7No whitelisted players');
                     } else {
                         list.slice(0, 20).forEach((entry, i) => {
                             const date = new Date(entry.added_at).toLocaleDateString();
-                            ng_core.SendMessage(source, `^5${i + 1}. ^7${entry.identifier} ^5(by ${entry.added_by}, ${date})`);
+                            this.sendMessage(source, `^5${i + 1}. ^7${entry.identifier} ^5(by ${entry.added_by}, ${date})`);
                         });
                         if (list.length > 20) {
-                            ng_core.SendMessage(source, `^7... and ${list.length - 20} more`);
+                            this.sendMessage(source, `^7... and ${list.length - 20} more`);
                         }
                     }
                 })
                 .catch(error => {
-                    ng_core.SendMessage(source, `^1Error: ^7${error.message}`);
+                    this.sendMessage(source, `^1Error: ^7${error.message}`);
                 });
         }, {
-            plugin: 'ng_freemode',
             description: 'List whitelisted players',
             permission: 'command.whitelist'
         });
 
         // Command: Whitelist toggle (admin)
-        ng_core.RegisterCommand('wltoggle', (source) => {
+        this._registerCommand('wltoggle', (source) => {
             if (whitelist.isEnabled()) {
                 whitelist.disable();
-                ng_core.SendMessage(source, '^3Whitelist disabled');
-                ng_core.BroadcastMessage('^3Server whitelist has been disabled');
+                this.sendMessage(source, '^3Whitelist disabled');
+                this.broadcastMessage('^3Server whitelist has been disabled');
             } else {
                 whitelist.enable();
-                ng_core.SendMessage(source, '^2+ Whitelist enabled');
-                ng_core.BroadcastMessage('^2Server whitelist has been enabled');
+                this.sendMessage(source, '^2+ Whitelist enabled');
+                this.broadcastMessage('^2Server whitelist has been enabled');
             }
         }, {
-            plugin: 'ng_freemode',
             description: 'Toggle whitelist on/off',
             permission: 'command.whitelist'
         });
 
         // Command: Whitelist myself
-        ng_core.RegisterCommand('wlme', (source) => {
+        this._registerCommand('wlme', (source) => {
             const identifiers = whitelist.getPlayerIdentifiers(source);
             const license = identifiers.license;
 
             if (!license) {
-                ng_core.SendMessage(source, '^1Error: ^7Could not find your license identifier');
+                this.sendMessage(source, '^1Error: ^7Could not find your license identifier');
                 return;
             }
 
@@ -603,20 +674,19 @@ class FreemodeGamemode {
             whitelist.add(identifier, playerName, 'Self-added via /wlme')
                 .then(result => {
                     if (result.success) {
-                        ng_core.SendMessage(source, '^2+ You have been added to whitelist');
-                        ng_core.SendMessage(source, `^5Your license: ^7${license}`);
+                        this.sendMessage(source, '^2+ You have been added to whitelist');
+                        this.sendMessage(source, `^5Your license: ^7${license}`);
                         console.log(`[Freemode] ${playerName} self-added to whitelist: ${identifier}`);
                     } else if (result.reason === 'already_whitelisted') {
-                        ng_core.SendMessage(source, '^3You are already whitelisted');
+                        this.sendMessage(source, '^3You are already whitelisted');
                     } else {
-                        ng_core.SendMessage(source, `^1Error: ^7${result.reason}`);
+                        this.sendMessage(source, `^1Error: ^7${result.reason}`);
                     }
                 })
                 .catch(error => {
-                    ng_core.SendMessage(source, `^1Error: ^7${error.message}`);
+                    this.sendMessage(source, `^1Error: ^7${error.message}`);
                 });
         }, {
-            plugin: 'ng_freemode',
             description: 'Add yourself to the whitelist',
             permission: 'command.whitelist'
         });
